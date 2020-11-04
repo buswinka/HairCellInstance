@@ -16,3 +16,23 @@ def test_vector():
     assert out[0,0,0,0,0] == 0
     return out
 
+def test_vector_to_embedding():
+    x = torch.randn((1, 3, 100, 100, 10))
+    out = src.utils.vector_to_embedding(x)
+
+
+def test_convert_embedding_to_probability():
+    embed = torch.randn((1,3,100,100,10))
+    centroid = torch.randn((1, 90, 3))
+
+    sigma = torch.Tensor([2])
+    out = src.utils.embedding_to_probability(embed, centroid, sigma)
+
+    assert out.shape[1] == centroid.shape[1]
+    assert out.shape[2] == embed.shape[2]
+    assert out.shape[3] == embed.shape[3]
+    assert out.shape[4] == embed.shape[4]
+    assert out.max() < 1
+    assert out.min() > 0
+
+
