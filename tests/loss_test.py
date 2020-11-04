@@ -10,7 +10,7 @@ def test_jaccard_loss():
     assert x.max() == 1
     assert y.max() == 1
 
-    out = src.loss.jaccard_loss(x, y)
+    out = src.loss.jaccard_loss()(x, y)
 
     assert out > 0
     assert out < 1

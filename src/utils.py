@@ -30,6 +30,7 @@ def calculate_vector(mask: torch.Tensor) -> torch.Tensor:
 
     return vector
 
+
 def vector_to_embedding(vector: torch.Tensor) -> torch.Tensor:
     """
 
@@ -43,7 +44,7 @@ def vector_to_embedding(vector: torch.Tensor) -> torch.Tensor:
                                  torch.linspace(0, 1, vector.shape[4])])
     mesh = torch.cat((xv.unsqueeze(0).unsqueeze(0),
                       yv.unsqueeze(0).unsqueeze(0),
-                      zv.unsqueeze(0).unsqueeze(0)), dim=1)
+                      zv.unsqueeze(0).unsqueeze(0)), dim=1).to(vector.device)
 
     return mesh + vector
 
