@@ -13,13 +13,17 @@ class RDCNet(nn.Module):
 
         self.strided_conv = nn.Conv3d(in_channels, complexity, kernel_size=3, stride=2, padding=1)
         self.RDCblock = RDCBlock(in_channels=complexity)
-        self.out_conv = nn.Conv3d(complexity, out_channels=complexity, kernel_size=3, padding=1)
-        self.transposed_conv = nn.ConvTranspose3d(in_channels=complexity, out_channels=out_channels,
-                                                  stride=(2,2,2), kernel_size=(4, 4, 4), padding=(1,1,1))
-        self.leaky_relu = nn.LeakyReLU()
+        self.out_conv = nn.Conv3d(complexity, out_channels=out_channels, kernel_size=1, padding=0)
+        self.transposed_conv = nn.ConvTranspose3d(in_channels=complexity, out_channels=complexity,
+                                                  stride=(2, 2, 2), kernel_size=(4, 4, 4), padding=(1, 1, 1))
+        self.batch_norm_out = nn.BatchNorm3d(out_channels)
+        self.batch_norm_transpose = nn.BatchNorm3d(complexity)
 
-    def forward(self, x, i: int = 10):
-        x = self.strided_conv(x)
+        self.activation = nn.Tanh()
+
+    def forward(self, x, i: int = 2):
+
+        x = self.activation(self.strided_conv(x))
 
         for t in range(i):
             if t == 0:
@@ -27,7 +31,6 @@ class RDCNet(nn.Module):
             in_ = torch.cat((x, y), dim=1)
             y = self.RDCblock(in_) + y
 
-        y = self.leaky_relu(self.out_conv(y))
-
-        return self.leaky_relu(self.transposed_conv(y))
+        y = self.activation(self.batch_norm_transpose(self.transposed_conv(y)))
+        return self.activation(self.batch_norm_out(self.out_conv(y)))
 

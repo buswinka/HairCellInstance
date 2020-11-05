@@ -13,10 +13,14 @@ class RDCBlock(nn.Module):
 
         super(RDCBlock, self).__init__()
 
-        self.conv = nn.Conv3d(in_channels*2, in_channels, kernel_size=1)
-        self.grouped_conv = StackedDilation(in_channels, in_channels, 5)
+        self.conv1x1 = nn.Conv3d(in_channels*2, in_channels, kernel_size=1)
+        self.grouped_conv = StackedDilation(in_channels, in_channels, kernel=5)
+        self.activation = nn.LeakyReLU()
+
+        self.batch_norm_conv = nn.BatchNorm3d(in_channels)
+        self.batch_norm_group = nn.BatchNorm3d(in_channels)
 
     def forward(self, x):
-        x = self.conv(x)
-        x = self.grouped_conv(x)
+        x = self.activation(self.batch_norm_conv(self.conv1x1(x)))
+        x = self.activation(self.batch_norm_group(self.grouped_conv(x)))
         return x
