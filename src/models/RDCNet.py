@@ -8,10 +8,14 @@ filterwarnings("ignore", category=UserWarning)
 
 
 class RDCNet(nn.Module):
-    def __init__(self, in_channels, out_channels, complexity: int = 10):
+    def __init__(self, in_channels, out_channels, complexity: int = 20):
         super(RDCNet, self).__init__()
 
-        self.strided_conv = nn.Conv3d(in_channels, complexity, kernel_size=3, stride=2, padding=1)
+        self.conv3x3_1 = nn.Conv3d(in_channels=in_channels, out_channels=5,padding=1, kernel_size=3)
+        self.conv3x3_2 = nn.Conv3d(in_channels=5, out_channels=10,padding=1, kernel_size=3)
+        self.conv3x3_3 = nn.Conv3d(in_channels=10, out_channels=15,padding=1, kernel_size=3)
+
+        self.strided_conv = nn.Conv3d(15, complexity, kernel_size=3, stride=2, padding=1)
         self.RDCblock = RDCBlock(in_channels=complexity)
         self.out_conv = nn.Conv3d(complexity, out_channels=out_channels, kernel_size=1, padding=0)
         self.transposed_conv = nn.ConvTranspose3d(in_channels=complexity, out_channels=complexity,
@@ -19,11 +23,20 @@ class RDCNet(nn.Module):
         self.batch_norm_out = nn.BatchNorm3d(out_channels)
         self.batch_norm_transpose = nn.BatchNorm3d(complexity)
 
+        self.bn_1 = nn.BatchNorm3d(5)
+        self.bn_2 = nn.BatchNorm3d(10)
+        self.bn_3 = nn.BatchNorm3d(15)
+
         self.activation = nn.Tanh()
 
-    def forward(self, x, i: int = 2):
+    def forward(self, x, i: int = 5):
+
+        x = self.activation(self.bn_1(self.conv3x3_1(x)))
+        x = self.activation(self.bn_2(self.conv3x3_2(x)))
+        x = self.activation(self.bn_3(self.conv3x3_3(x)))
 
         x = self.activation(self.strided_conv(x))
+
 
         for t in range(i):
             if t == 0:

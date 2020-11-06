@@ -26,7 +26,7 @@ def test_convert_embedding_to_probability():
     centroid = torch.randn((1, 90, 3))
 
     sigma = torch.Tensor([2])
-    out = src.utils.embedding_to_probability(embed, centroid, sigma)
+    out = src.utils.embedding_to_probability_vector(embed, centroid, sigma)
 
     assert out.shape[1] == centroid.shape[1]
     assert out.shape[2] == embed.shape[2]
@@ -36,3 +36,17 @@ def test_convert_embedding_to_probability():
     assert out.min() > 0
 
 
+def test_convert_embedding_to_probability_vectorized():
+    embed = torch.randn((1,3,100,100,10))
+    centroid = torch.randn((1, 90, 3))
+
+    sigma = torch.Tensor([2])
+    out = src.utils.embedding_to_probability(embed, centroid, sigma)
+    out2 = src.utils.embedding_to_probability_vector(embed, centroid, sigma)
+
+    assert out2.shape[1] == centroid.shape[1]
+    assert out2.shape[2] == embed.shape[2]
+    assert out2.shape[3] == embed.shape[3]
+    assert out2.shape[4] == embed.shape[4]
+    assert out2.max() < 1
+    assert out2.min() > 0
