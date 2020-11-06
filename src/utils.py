@@ -75,15 +75,16 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
     B = centroids.shape[0]
 
     for i in range(centroids.shape[1]):
-        euclidean_norm = (embedding - centroids[:, i, :].reshape(B, 3, 1, 1, 1)).pow(2).sum(dim=1).sqrt().unsqueeze(1)
-        prob[:, i, :, :, :] = torch.exp(-1 * (euclidean_norm ** 2) / (2 * sigma.to(embedding.device) ** 2)).squeeze(1)
+        euclidean_norm = (embedding - centroids[:, i, :].reshape(B, 3, 1, 1, 1)).pow(2).sum(dim=1).unsqueeze(1)
+        prob[:, i, :, :, :] = torch.exp(-1 * (euclidean_norm) / (2 * sigma.to(embedding.device) ** 2)).squeeze(1)
 
     return prob
-
 
 @torch.jit.script
 def embedding_to_probability_vector(embedding: torch.Tensor, centroids: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
     """
+    ITS SLOW AF WTF
+
 
     :param embedding: [B, K=3, X, Y, Z] torch.Tensor where K is the likely centroid component: {X, Y, Z}
     :param centroids: [B, I, K_true=3] torch.Tensor where I is the number of instances in the image and K_true is centroid
@@ -91,6 +92,7 @@ def embedding_to_probability_vector(embedding: torch.Tensor, centroids: torch.Te
     :param sigma: torch.Tensor of shape = (1) or (embedding.shape)
     :return: [B, I, X, Y, Z] of probabilities for instance I
     """
+    raise DeprecationWarning('Its slower than embedding_to_probability()')
 
     # Calculates the euclidean distance between the centroid and the embedding
     # embedding [B, 3, X, Y, Z] -> euclidean_norm[B, 1, X, Y, Z]
@@ -108,7 +110,4 @@ def embedding_to_probability_vector(embedding: torch.Tensor, centroids: torch.Te
     for i in range(centroids.shape[1]):
         prob[:,i,:,:,:,:] = embedding
 
-    print(prob.shape)
-    print(centroids.reshape(B,-1,3,1,1,1).shape)
-
-    return torch.exp(-1 * (prob - centroids.reshape(B,-1,3,1,1,1)).pow(2).sum(dim=2)) / (2 * sigma.to(embedding.device) ** 2)
+    return torch.exp(-1 * (prob - centroids.reshape(B,-1,3,1,1,1)).pow(2).sum(dim=2) / (2 * sigma.to(embedding.device) ** 2))

@@ -16,7 +16,7 @@ import torch.nn.functional as F
 
 epochs = 500
 
-model = RDCNet(in_channels=4, out_channels=4, complexity=20).cuda()
+model = RDCNet(in_channels=4, out_channels=4, complexity=3).cuda()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
 loss_fun = src.loss.jaccard_loss()
 
@@ -41,7 +41,7 @@ for e in range(epochs):
         vector = out.cpu().clone()
         out = src.utils.vector_to_embedding(out)
         embed = out.cpu().clone()
-        out = src.utils.embedding_to_probability(out, centroids.cuda(), torch.tensor([0.05]))
+        out = src.utils.embedding_to_probability_vector(out, centroids.cuda(), torch.tensor([0.05]))
 
 
         #This is jank
