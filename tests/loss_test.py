@@ -2,7 +2,7 @@ import torch
 import src.loss
 import src.dataloader
 import src.loss
-import src.utils
+import src.functional
 import torch
 from src.models.RDCNet import RDCNet
 from src.models.RecurrentUnet import RecurrentUnet
@@ -58,7 +58,7 @@ def test_sanity():
         plt.imshow(out[0,0,:,:,i])
         plt.show()
 
-    out = src.utils.vector_to_embedding(out)
+    out = src.functional.vector_to_embedding(out)
 
 
 
@@ -67,7 +67,7 @@ def test_sanity():
         plt.show()
 
 
-    out = src.utils.embedding_to_probability_vector(out, centroids, torch.tensor([0.05]))
+    out = src.functional.embedding_to_probability_vector(out, centroids, torch.tensor([0.05]))
 
     assert out.shape[1] == centroids.shape[1]
 

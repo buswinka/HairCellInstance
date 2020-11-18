@@ -34,14 +34,16 @@ class dataset(DataLoader):
         return len(self.mask)
 
     def __getitem__(self, item):
+
+        data_dict = {'image': self.image[item], 'masks': self.mask[item], 'centroids': self.centroids[item]}
+
         if self.transforms is not None:
-            return self.transforms(
-                {'image': self.image[item], 'mask': self.mask[item], 'centroids': self.centroids[item]})
+            return self.transforms(data_dict)
         else:
-            return {'image': self.image[item], 'mask': self.mask[item], 'centroids': self.centroids[item]}
+            return data_dict
 
 
-def colormask_to_torch_mask(colormask: torch.tensor) -> torch.Tensor:
+def colormask_to_torch_mask(colormask: torch.Tensor) -> torch.Tensor:
     """
 
     :param colormask: [C=1, X, Y, Z]
