@@ -1,5 +1,10 @@
 import torch
+import matplotlib.pyplot as plt
+
 import numpy as np
+from sklearn.cluster import DBSCAN, OPTICS
+
+from hdbscan import HDBSCAN
 
 
 @torch.jit.script
@@ -87,3 +92,66 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
         prob[:, i, :, :, :] = torch.exp(-1 * euclidean_norm / (2 * sigma.to(embedding.device) ** 2)).squeeze(1)
 
     return prob
+
+
+def estimate_centroids(embedding: torch.Tensor) -> torch.Tensor:
+    """
+    Assume [B, 3, X, Y, Z]
+    Warning moves everything to cpu!
+
+    :param embedding:
+    :return:
+    """
+    device = embedding.device
+    embedding = embedding.detach().cpu().squeeze(0).reshape((3, -1))
+
+    x = embedding[0, :]
+    y = embedding[1, :]
+    z = embedding[2, :]
+
+    ind_x = torch.logical_and(x > 0, x < 1)
+    ind_y = torch.logical_and(y > 0, y < 1)
+    ind_z = torch.logical_and(z > 0, z < 1)
+    ind = torch.logical_and(ind_x, ind_y)
+    ind = torch.logical_and(ind, ind_z)
+
+    x = x[ind]
+    y = y[ind]
+    z = z[ind]
+
+
+    ind = torch.randperm(len(x))
+    n_samples = 100000
+    ind = ind[0:n_samples:1]
+
+    x = x[ind].numpy()
+    y = y[ind].numpy()
+    z = z[ind].numpy()
+
+
+    X = np.stack((x, y, z)).T
+    db = DBSCAN(eps=0.02, min_samples=100).fit(X)
+    # db = HDBSCAN(min_samples=1000).fit(X)
+    labels = db.labels_
+
+    centroids = []
+    for u in np.unique(labels):
+        if u == -1:
+            continue
+
+        index = labels == u
+        c = X[index, :].mean(axis=0)
+        centroids.append(c)
+
+    return torch.tensor(centroids).to(device)
+
+
+if __name__ == '__main__':
+    x = torch.load('data.trch').cpu()
+    centroids, X, lables = estimate_centroids(x)
+
+    plt.figure()
+    plt.plot(X[:, 0], X[:, 1], 'k.', alpha=0.01)
+    for c in centroids:
+        plt.plot(c[0], c[1], 'ro')
+    plt.show()

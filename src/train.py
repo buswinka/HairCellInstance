@@ -3,6 +3,7 @@ import src.loss
 import src.functional
 import torch
 from src.models.RDCNet import RDCNet
+from src.models.HCNet import HCNet
 from src.models.unet import Unet_Constructor as unet
 from src.models.RecurrentUnet import RecurrentUnet
 import torch
@@ -15,27 +16,43 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
+import torchvision.transforms
+import src.transforms as t
 import skimage.io as io
 
-epochs = 100
+epochs = 250
 
-model = RDCNet(in_channels=4, out_channels=3, complexity=20).cuda()
-# model = unet(image_dimensions=3,
-#                  in_channels=4,
-#                  out_channels=4,
-#                  feature_sizes=[16, 32, 64],
-#                  kernel={'conv1': (3, 3, 2), 'conv2': (3, 3, 1)},
-#                  upsample_kernel=(8, 8, 2),
-#                  max_pool_kernel=(2, 2, 1),
-#                  upsample_stride=(2, 2, 1),
-#                  dilation=1,
-#                  groups=2).to('cuda')
+model = torch.jit.script(HCNet(in_channels=4, out_channels=3, complexity=20)).cuda()
+model.train()
+model.load_state_dict(torch.load('trained_model_hcnet.mdl'))
 
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 loss_fun = src.loss.jaccard_loss()
+transforms = torchvision.transforms.Compose([
+    t.to_cuda(),
+    t.random_h_flip(),
+    t.random_v_flip(),
+    t.random_affine(),
+    t.adjust_centroids()
+])
 
-data = src.dataloader.dataset('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/data/test')
-data = DataLoader(data, batch_size=1, shuffle=False, num_workers=4)
+data = src.dataloader.dataset('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/data/test', transforms=transforms)
+data = DataLoader(data, batch_size=1, shuffle=False, num_workers=0)
+
+# for data_dict in data:
+#     image = data_dict['image']
+#     image = (image - 0.5) / 0.5
+#     mask = data_dict['masks'] > 0.5
+#     centroids = data_dict['centroids']
+#
+#     plt.imshow(image[0, 2, :, :, 22].detach().cpu().numpy())
+#     plt.show()
+#     plt.imshow(mask[0,5,:,:,22].detach().cpu().numpy())
+#     plt.plot(centroids[0,5,1]*256, centroids[0,5,0]*256, 'ro')
+#     plt.show()
+#
+#
+# raise ValueError
 
 for e in range(epochs):
     time_1 = time.clock_gettime_ns(1)
@@ -65,7 +82,7 @@ for e in range(epochs):
 
     time_2 = time.clock_gettime_ns(1)
     delta_time = np.round((np.abs(time_2 - time_1) / 1e9) / 60, decimals=2)
-    if e % 5 == 0:
+    if e % 1 == 0:
         progress_bar = '[' + '█' * +int(np.round(e / epochs, decimals=1) * 10) + \
                        ' ' * int(
             (10 - np.round(e / epochs, decimals=1) * 10)) + f'] {np.round(e / epochs, decimals=3)}%'
@@ -82,7 +99,7 @@ for e in range(epochs):
         out_str = f'epoch: {epochs} ' + progress_bar + f'| time remaining: {0} min | loss: {loss.item()}'
         print(out_str)
 
-torch.save(model.state_dict(), 'trained_model.mdl')
+torch.save(model.state_dict(), 'trained_model_hcnet.mdl')
 
 for i in [22]:
     fig, ax = plt.subplots(1, 2)

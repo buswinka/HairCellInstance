@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from src.models.modules.RDCblock import RDCBlock
+import src.functional
 from warnings import filterwarnings
 
 
@@ -28,7 +29,6 @@ class RDCNet(nn.Module):
         self.activation = nn.LeakyReLU()
 
     def forward(self, x, i: int = 7):
-
         x = self.activation(self.bn_1(self.conv3x3_1(x)))
         x = self.activation(self.strided_conv(x))
         y = torch.zeros(x.shape).to(x.device)
@@ -38,5 +38,11 @@ class RDCNet(nn.Module):
             y = self.RDCblock(in_) + y
 
         y = self.activation(self.batch_norm_transpose(self.transposed_conv(y)))
+        y = self.out_conv(y)
 
-        return self.out_conv(y)
+        if self.training:
+            return y
+        else:
+            y = src.functional.vector_to_embedding(y)
+            centroids = src.functional.estimate_centroids(y).unsqueeze(0)
+            return src.functional.embedding_to_probability(y, centroids, torch.tensor([0.01])), y, centroids

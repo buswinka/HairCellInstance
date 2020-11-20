@@ -4,6 +4,7 @@ from PIL.Image import Image
 import numpy as np
 from typing import Dict, Tuple, Union, List
 
+
 # ----------------- Assumtions -------------------#
 # Every image is expected to be [B, C, X, Y, Z]
 # Every transform's input has to be Dict[str, torch.Tensor]
@@ -31,8 +32,8 @@ class random_v_flip:
         """
 
         if torch.rand(1) < self.rate:
-            data_dict['image'] = self.fun(data_dict['image'])
-            data_dict['masks'] = self.fun(data_dict['masks'])
+            data_dict['image'] = _reshape(self.fun(_shape(data_dict['image'])))
+            data_dict['masks'] = _reshape(self.fun(_shape(data_dict['masks'])))
 
         return data_dict
 
@@ -57,8 +58,8 @@ class random_h_flip:
         """
 
         if torch.rand(1) < self.rate:
-            data_dict['image'] = self.fun(data_dict['image'])
-            data_dict['masks'] = self.fun(data_dict['masks'])
+            data_dict['image'] = _reshape(self.fun(_shape(data_dict['image'])))
+            data_dict['masks'] = _reshape(self.fun(_shape(data_dict['masks'])))
 
         return data_dict
 
@@ -107,33 +108,7 @@ class gaussian_blur:
         """
         if torch.rand(1) < self.rate:
             kern = self.kernel_targets[int(torch.randint(0, len(self.kernel_targets), (1, 1)).item())].item()
-            data_dict['image'] = self.fun(data_dict['image'], [kern, kern])
-        return data_dict
-
-
-class random_resize:
-    def __init__(self, rate: float = 0.5, scale: tuple = (300, 1440)) -> None:
-        self.rate = rate
-        self.scale = scale
-
-    def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        """
-        Randomly resizes an mask
-
-        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
-            key : val
-            'mask' : torch.Tensor of size [C, X, Y] where C is the number of colors, X,Y are the mask height and width
-            'masks' : torch.Tensor of size [I, X, Y] where I is the number of identifiable objects in the mask
-            'boxes' : torch.Tensor of size [I, 4] where each box is [x1, y1, x2, y2]
-            'labels' : torch.Tensor of size [I] class label for each instance
-
-        :return: Dict[str, torch.Tensor]
-        """
-        if torch.rand(1) < self.rate:
-            size = torch.randint(self.scale[0], self.scale[1], (1, 1)).item()
-            data_dict['image'] = torchvision.transforms.functional.resize(data_dict['image'], size)
-            data_dict['masks'] = torchvision.transforms.functional.resize(data_dict['masks'], size)
-
+            data_dict['image'] = _reshape(self.fun(_shape(data_dict['image']), [kern, kern]))
         return data_dict
 
 
@@ -171,7 +146,7 @@ class adjust_contrast:
 # needs docstring
 class random_affine:
     def __init__(self, rate: float = 0.5, angle: Tuple[int, int] = (-180, 180),
-                 shear: Tuple[int, int] = (-45, 45), scale: Tuple[float, float] = (0.9, 1.5)) -> None:
+                 shear: Tuple[int, int] = (-15, 15), scale: Tuple[float, float] = (0.9, 1.5)) -> None:
         self.rate = rate
         self.angle = angle
         self.shear = shear
@@ -184,8 +159,8 @@ class random_affine:
             scale = torch.FloatTensor(1).uniform_(self.scale[0], self.scale[1])
             translate = torch.tensor([0, 0])
 
-            data_dict['image'] = _affine(data_dict['image'], angle, translate, scale, shear)
-            data_dict['masks'] = _affine(data_dict['masks'], angle, translate, scale, shear)
+            data_dict['image'] = _reshape(_affine(_shape(data_dict['image']), angle, translate, scale, shear))
+            data_dict['masks'] = _reshape(_affine(_shape(data_dict['masks']), angle, translate, scale, shear))
 
         return data_dict
 
@@ -220,14 +195,35 @@ class to_tensor:
         data_dict['image'] = torchvision.transforms.functional.to_tensor(data_dict['image'])
         return data_dict
 
-
-class stack_image:
+class adjust_centroids:
     def __init__(self):
         pass
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        data_dict['image'] = torch.cat((data_dict['image'], data_dict['image'], data_dict['image']), dim=0)
+
+        shape = data_dict['masks'].shape
+        device = data_dict['masks'].device
+        centroid = torch.zeros(shape[0], 3, dtype=torch.float)
+        ind = torch.ones(shape[0], dtype=torch.long)
+
+        for i in range(shape[0]): # num of instances
+            indexes = torch.nonzero(data_dict['masks'][i, :, :, :] > 0).float()
+
+            if indexes.shape[0] == 0:
+                centroid[i, :] = torch.tensor([-1,-1,-1])
+                ind[i] = 0
+            else:
+                centroid[i, :] = torch.mean(indexes, dim=0)
+
+        centroid[:, 0] /= shape[1]
+        centroid[:, 1] /= shape[2]
+        centroid[:, 2] /= shape[3]
+
+        data_dict['centroids'] = centroid[ind.bool()].to(device)
+        data_dict['masks'] = data_dict['masks'][ind.bool(), :, :, :]
+
         return data_dict
+
 
 
 @torch.jit.script
@@ -250,11 +246,11 @@ def _affine(img: torch.Tensor, angle: torch.Tensor, translate: torch.Tensor, sca
 
 @torch.jit.script
 def _shape(img: torch.Tensor) -> torch.Tensor:
-    # [B, C, X, Y, Z] -> [B, C, 1, X, Y, Z] ->  [B, C, Z, X, Y, 1] -> [B, C, Z, X, Y]
-    return img.unsqueeze(2).transpose(2, -1).squeeze(-1)
+    # [C, X, Y, Z] -> [C, 1, X, Y, Z] ->  [C, Z, X, Y, 1] -> [C, Z, X, Y]
+    return img.unsqueeze(1).transpose(1, -1).squeeze(-1)
 
 
 @torch.jit.script
 def _reshape(img: torch.Tensor) -> torch.Tensor:
-    # [B, C, Z, X, Y] -> [B, C, Z, X, Y, 1] ->  [B, C, 1, X, Y, Z] -> [B, C, Z, X, Y]
-    return img.unsqueeze(-1).transpose(2, -1).squeeze(2)
+    # [C, Z, X, Y] -> [C, Z, X, Y, 1] ->  [C, 1, X, Y, Z] -> [C, Z, X, Y]
+    return img.unsqueeze(-1).transpose(1, -1).squeeze(1)
