@@ -8,31 +8,38 @@ from warnings import filterwarnings
 filterwarnings("ignore", category=UserWarning)
 
 class HCNet(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int, complexity: int = 20):
+    def __init__(self, in_channels: int, out_channels: int, complexity: int = 30):
         super(HCNet, self).__init__()
+        # raise RuntimeError('Because of how embedding works, there could be a different pixel delta for different '+
+        #                    'sized images! 1 delta pixel at 256 is not the same as 512!!!')
 
-        self.conv3x3_1 = nn.Conv3d(in_channels=in_channels, out_channels=5, padding=1, kernel_size=3)
+        self.conv3x3_1 = nn.Conv3d(in_channels=in_channels, out_channels=10, padding=1, kernel_size=3)
+        self.bn_1 = nn.BatchNorm3d(10)
 
-        self.strided_conv = nn.Conv3d(5, complexity, kernel_size=3, stride=2, padding=1)
+        self.conv5x5_1 = nn.Conv3d(in_channels=10, out_channels=20, kernel_size=5, padding=2)
+        self.bn_5x5_1 = nn.BatchNorm3d(20)
+
+        self.strided_conv = nn.Conv3d(20, complexity, kernel_size=3, stride=2, padding=1)
+        self.bn_strided = nn.BatchNorm3d(complexity)
+
         self.hcblock = torch.jit.script(HCBlock(in_channels=complexity))
+
         self.transposed_conv = nn.ConvTranspose3d(in_channels=complexity, out_channels=complexity,
                                                   stride=(2, 2, 2), kernel_size=(4, 4, 4), padding=(1, 1, 1))
-
-        self.conv3x3_2 = nn.Conv3d(complexity, complexity, kernel_size=3, padding=1)
-        self.out_conv = nn.Conv3d(complexity, out_channels=out_channels, kernel_size=1, padding=0)
-
-
-        self.batch_norm_out = nn.BatchNorm3d(out_channels)
         self.batch_norm_transpose = nn.BatchNorm3d(complexity)
 
-        self.bn_1 = nn.BatchNorm3d(5)
+        self.conv3x3_2 = nn.Conv3d(complexity, complexity, kernel_size=3, padding=1)
         self.bn_2 = nn.BatchNorm3d(complexity)
+
+        self.out_conv = nn.Conv3d(complexity, out_channels=out_channels, kernel_size=1, padding=0)
 
         self.activation = nn.LeakyReLU()
 
-    def forward(self, x: torch.Tensor, i: int = 10) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, i: int = 5) -> torch.Tensor:
+
         x = self.activation(self.bn_1(self.conv3x3_1(x)))
-        x = self.activation(self.strided_conv(x))
+        x = self.activation(self.bn_5x5_1(self.conv5x5_1(x)))
+        x = self.activation(self.bn_strided(self.strided_conv(x)))
         y = torch.zeros(x.shape).to(x.device)
 
         for t in range(i):

@@ -1,4 +1,8 @@
 import torch
+import torchvision
+import src.dataloader
+from torch.utils.data import DataLoader
+
 import matplotlib.pyplot as plt
 
 import numpy as np
@@ -10,17 +14,21 @@ from hdbscan import HDBSCAN
 @torch.jit.script
 def calculate_vector(mask: torch.Tensor) -> torch.Tensor:
     """
-    mask: [1,1,x,y,z] mask of ints
+    Have to use a fixed deltas for each pixel
+    else it is size variant and doenst work for big images...
 
     :param mask:
     :return: [1,1,x,y,z] vector to the center of mask
     """
+    x_factor = 1/512
+    y_factor = 1/512
+    z_factor =  1/40
 
     # com = torch.zeros(mask.shape)
     vector = torch.zeros((1, 3, mask.shape[2], mask.shape[3], mask.shape[4]))
-    xv, yv, zv = torch.meshgrid([torch.linspace(0, 1, mask.shape[2]),
-                                 torch.linspace(0, 1, mask.shape[3]),
-                                 torch.linspace(0, 1, mask.shape[4])])
+    xv, yv, zv = torch.meshgrid([torch.linspace(0, x_factor*mask.shape[2], mask.shape[2]),
+                                 torch.linspace(0, y_factor*mask.shape[3], mask.shape[3]),
+                                 torch.linspace(0, z_factor*mask.shape[4], mask.shape[4])])
 
     for u in torch.unique(mask):
         if u == 0:
@@ -47,10 +55,17 @@ def vector_to_embedding(vector: torch.Tensor) -> torch.Tensor:
     :param vector:
     :return:
     """
+    x_factor = 1/512
+    y_factor = 1/512
+    z_factor = 1/40
 
-    xv, yv, zv = torch.meshgrid([torch.linspace(0, 1, vector.shape[2]),
-                                 torch.linspace(0, 1, vector.shape[3]),
-                                 torch.linspace(0, 1, vector.shape[4])])
+    # xv, yv, zv = torch.meshgrid([torch.linspace(0, 1, vector.shape[2]),
+    #                              torch.linspace(0, 1, vector.shape[3]),
+    #                              torch.linspace(0, 1, vector.shape[4])])
+
+    xv, yv, zv = torch.meshgrid([torch.linspace(0, x_factor*vector.shape[2], vector.shape[2]),
+                                 torch.linspace(0, y_factor*vector.shape[3], vector.shape[3]),
+                                 torch.linspace(0, z_factor*vector.shape[4], vector.shape[4])])
 
     mesh = torch.cat((xv.unsqueeze(0).unsqueeze(0),
                       yv.unsqueeze(0).unsqueeze(0),
@@ -71,6 +86,14 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
     :param sigma: torch.Tensor of shape = (1) or (embedding.shape)
     :return: [B, I, X, Y, Z] of probabilities for instance I
     """
+    x_factor = 1/512
+    y_factor = 1/512
+    z_factor = 1/40
+
+    # centroids *= torch.tensor([x_factor, y_factor, z_factor]).unsqueeze(0).unsqueeze(-1).to(centroids.device)
+    centroids[:, :, 0] *= x_factor
+    centroids[:, :, 1] *= y_factor
+    centroids[:, :, 2] *= z_factor
 
     # Calculates the euclidean distance between the centroid and the embedding
     # embedding [B, 3, X, Y, Z] -> euclidean_norm[B, 1, X, Y, Z]
@@ -94,7 +117,7 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
     return prob
 
 
-def estimate_centroids(embedding: torch.Tensor) -> torch.Tensor:
+def estimate_centroids(embedding: torch.Tensor, eps: float = 0.2, min_samples: int = 100) -> torch.Tensor:
     """
     Assume [B, 3, X, Y, Z]
     Warning moves everything to cpu!
@@ -130,7 +153,7 @@ def estimate_centroids(embedding: torch.Tensor) -> torch.Tensor:
 
 
     X = np.stack((x, y, z)).T
-    db = DBSCAN(eps=0.02, min_samples=100).fit(X)
+    db = DBSCAN(eps=eps, min_samples=min_samples).fit(X)
     # db = HDBSCAN(min_samples=1000).fit(X)
     labels = db.labels_
 
@@ -147,11 +170,21 @@ def estimate_centroids(embedding: torch.Tensor) -> torch.Tensor:
 
 
 if __name__ == '__main__':
-    x = torch.load('data.trch').cpu()
-    centroids, X, lables = estimate_centroids(x)
+    print('Loading Val...')
+    transforms = torchvision.transforms.Compose([
+        # t.nul_crop(),
+        # t.random_crop(shape=(256, 256, 23)),
+    ])
 
-    plt.figure()
-    plt.plot(X[:, 0], X[:, 1], 'k.', alpha=0.01)
-    for c in centroids:
-        plt.plot(c[0], c[1], 'ro')
+    val = src.dataloader.dataset('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/data/test',
+                                 transforms=transforms)
+    val = DataLoader(val, batch_size=1, shuffle=False, num_workers=0)
+    print('Done')
+
+    for dd in val:
+        mask = dd['masks']
+        centroids = dd['centroids']
+
+    plt.plot(centroids[0,:,0]*1/512, centroids[0,:,1]*1/512, 'ko')
     plt.show()
+

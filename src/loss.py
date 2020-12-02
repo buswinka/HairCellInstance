@@ -1,4 +1,5 @@
 import torch
+from src.transforms import _crop
 import torch.nn as nn
 
 class jaccard_loss:
@@ -11,10 +12,22 @@ class jaccard_loss:
         :param ground_truth: [B, I, X, Y, Z] segmentation mask for each instance (I).
         :return:
         """
-        intersection = (predicted * ground_truth).sum()
-        union = (predicted + ground_truth).sum() / 2
 
-        return 1 - (intersection/union)
+        # print(predicted.shape, ground_truth.shape)
+        # print(ground_truth.shape[3]-1, ground_truth.shape[4]-1)
+
+        predicted = _crop(predicted, x=0, y=0, z=0,
+                          w=ground_truth.shape[2], h=ground_truth.shape[3], d=ground_truth.shape[4])
+        # intersection = (predicted * ground_truth).sum().mul(2)
+        # union = (predicted + ground_truth).sum()
+
+        # predicted[predicted>=0.5]=1
+        # predicted[predicted<0.5]=0
+
+        intersection = (predicted*ground_truth).sum().mul(2)
+        union = (predicted + ground_truth).sum()
+
+        return 1.0 - (intersection/union)
 
 
 

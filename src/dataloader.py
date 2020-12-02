@@ -21,8 +21,8 @@ class dataset(DataLoader):
         for f in files:
             image_path = os.path.splitext(f)[0]
             image_path = os.path.splitext(image_path)[0] + '.tif'
-            image = torch.from_numpy(io.imread(image_path).astype(np.int16)).unsqueeze(0)
-            image = image.transpose(1, 3).transpose(0, -1).squeeze()
+            image = torch.from_numpy(io.imread(image_path).astype(np.uint16) / 2 ** 16).unsqueeze(0)
+            image = image.transpose(1, 3).transpose(0, -1).squeeze()[[0, 2, 3], ...]
 
             mask = torch.from_numpy(io.imread(f)).transpose(0, 2).unsqueeze(0)
 
@@ -43,6 +43,7 @@ class dataset(DataLoader):
             return data_dict
 
 
+@torch.jit.script
 def colormask_to_torch_mask(colormask: torch.Tensor) -> torch.Tensor:
     """
 
@@ -62,6 +63,7 @@ def colormask_to_torch_mask(colormask: torch.Tensor) -> torch.Tensor:
     return mask
 
 
+@torch.jit.script
 def colormask_to_centroids(colormask: torch.Tensor) -> torch.Tensor:
     uni = torch.unique(colormask)
     uni = uni[uni != 0]
@@ -73,8 +75,8 @@ def colormask_to_centroids(colormask: torch.Tensor) -> torch.Tensor:
         indexes = torch.nonzero(colormask[0, :, :, :] == u).float()
         centroid[i, :] = torch.mean(indexes, dim=0)
 
-    centroid[:, 0] /= colormask.shape[1]
-    centroid[:, 1] /= colormask.shape[2]
-    centroid[:, 2] /= colormask.shape[3]
+    # centroid[:, 0] /= colormask.shape[1]
+    # centroid[:, 1] /= colormask.shape[2]
+    # centroid[:, 2] /= colormask.shape[3]
 
     return centroid
