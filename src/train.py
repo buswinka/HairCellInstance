@@ -22,21 +22,21 @@ from torch.utils.tensorboard import SummaryWriter
 import src.transforms as t
 import skimage.io as io
 
-epochs = 500
+epochs = 50
 
-model = torch.jit.script(HCNet(in_channels=4, out_channels=3, complexity=30)).cuda()
+model = torch.jit.script(HCNet(in_channels=3, out_channels=4, complexity=30)).cuda()
 model.train()
 #model.load_state_dict(torch.load('./trained_model_hcnet_long.mdl'))
 
 writer = SummaryWriter()
 
-optimizer = torch.optim.Adam(model.parameters(), lr=5e-4)
+optimizer = torch.optim.Adam(model.parameters(), lr=1e-2)
 loss_fun = src.loss.jaccard_loss()
 
 print('Loading Train...')
 transforms = torchvision.transforms.Compose([
     t.nul_crop(),
-    # t.random_crop(shape=(256, 256, 23)),
+    t.random_crop(shape=(256, 256, 23)),
     t.to_cuda(),
     # t.random_h_flip(),
     # t.random_v_flip(),
@@ -67,25 +67,25 @@ for e in range(epochs):
         image = (image - 0.5) / 0.5
         mask = data_dict['masks'] > 0.5
         centroids = data_dict['centroids']
+
         optimizer.zero_grad()
 
-        out = model(image.cuda())
+        out = model(image.cuda(), 5)
+        sigma = torch.sigmoid(out[:, -1, ...])
+        out = src.functional.vector_to_embedding(out[:, 0:3:1, ...])
+        out = src.functional.embedding_to_probability(out, centroids.cuda(), sigma)
 
-        # for recording later
-        vector = out.detach().cpu().clone()
-
-        out = src.functional.vector_to_embedding(out)
-
-        embed = out.detach().cpu().clone()
-        out = src.functional.embedding_to_probability(out, centroids.cuda(), torch.tensor([0.025]))
-        assert out.shape[1] == mask.shape[1]
         # This is jank
         loss = loss_fun(out, mask.cuda())
 
         loss.backward()
-        epoch_loss.append(loss.detach().cpu().item())
         optimizer.step()
+
+        epoch_loss.append(loss.detach().cpu().item())
         break
+
+    del out, sigma, image, mask, centroids, loss
+
     writer.add_scalar('Loss/train', torch.mean(torch.tensor(epoch_loss)).item(), e)
 
     time_2 = time.clock_gettime_ns(1)
@@ -100,14 +100,16 @@ for e in range(epochs):
             mask = data_dict['masks'] > 0.5
             centroids = data_dict['centroids']
 
-            out = model(image.cuda())
-            out = src.functional.vector_to_embedding(out)
-            out = src.functional.embedding_to_probability(out, centroids.cuda(), torch.tensor([0.025]))
+            out = model(image.cuda(), 5)
+            sigma = out[:, -1, ...]
+            out = src.functional.vector_to_embedding(out[:, 0:3:1, ...])
+            out = src.functional.embedding_to_probability(out, centroids.cuda(), sigma)
             loss = loss_fun(out, mask.cuda())
+
             val_loss.append(loss.item())
         val_loss = torch.tensor(val_loss).mean()
     writer.add_scalar('Loss/validate', val_loss.item(), e)
-    del out, loss, image, mask, val_loss
+    del out, loss, image, mask, val_loss, sigma
 
     if e % 1 == 0:
         progress_bar = '[' + '█' * +int(np.round(e / epochs, decimals=1) * 10) + \
@@ -127,33 +129,7 @@ for e in range(epochs):
         out_str = f'epoch: {epochs} ' + progress_bar + f'| time remaining: {0} min | loss: {loss.item()}'
         print(out_str)
 
-torch.save(model.state_dict(), 'trained_model_hcnet_long.mdl')
-
-for i in range(out.shape[-1]):
-    fig, ax = plt.subplots(1, 2)
-    ax[0].imshow(out.detach().cpu().numpy()[0, 1, :, :, i] > 0.5)
-    # ax[1].imshow(embed.detach().cpu().numpy()[0, 0, :, :, i])
-    # ax[2].imshow(vector.detach().cpu().numpy()[0, 0, :, :, i])
-    ax[1].imshow(mask.detach().cpu().numpy().sum(1)[0, :, :, i])
-    plt.show()
-
-slice = embed[0, :, :, :, 6].reshape(3, -1)
-x = slice[0, :]
-y = slice[1, :]
-z = slice[2, :]
-
-ind_x = torch.logical_and(x > 0, x < 1)
-ind_y = torch.logical_and(y > 0, y < 1)
-ind_z = torch.logical_and(z > 0, z < 1)
-ind = torch.logical_and(ind_x, ind_y)
-ind = torch.logical_and(ind, ind_z)
-
-x = x[ind]
-y = y[ind]
-z = z[ind]
-
-plt.plot(y.detach(), x.detach(), '.', alpha=1, markersize=0.05)
-plt.show()
+torch.save(model.state_dict(), 'overtrained_model_hcnet_long.mdl')
 
 
 render = (out > 0.25).int().squeeze(0)

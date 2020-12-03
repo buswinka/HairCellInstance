@@ -4,6 +4,8 @@ from PIL.Image import Image
 import numpy as np
 from typing import Dict, Tuple, Union, List
 import elasticdeform
+import src.dataloader
+import matplotlib.pyplot as plt
 
 
 # ----------------- Assumtions -------------------#
@@ -13,26 +15,35 @@ import elasticdeform
 
 
 class nul_crop:
-    def __init__(self):
-        pass
+    def __init__(self, rate: float = 0.80) -> None:
+        self.rate = rate
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-        ind = torch.nonzero(data_dict['masks'])  # -> [I, 4] where 4 is ndims
+        """
+        Removes blank space around cells to ensure training images has something the network can learn
+        Doesnt remove Z
 
-        x_max = ind[:, 1].max().int().item()
-        y_max = ind[:, 2].max().int().item()
-        z_max = ind[:, 3].max().int().item()
 
-        x = ind[:, 1].min().int().item()
-        y = ind[:, 2].min().int().item()
-        # z = ind[:, 3].min().int().item()
+        :param data_dict:
+        :return:
+        """
+        if torch.rand(1) < self.rate:
+            ind = torch.nonzero(data_dict['masks'])  # -> [I, 4] where 4 is ndims
 
-        w = x_max - x
-        h = y_max - y
-        # d = z_max-z
+            x_max = ind[:, 1].max().int().item()
+            y_max = ind[:, 2].max().int().item()
+            z_max = ind[:, 3].max().int().item()
 
-        data_dict['image'] = _crop(data_dict['image'], x=x, y=y, z=0, w=w, h=h, d=z_max)
-        data_dict['masks'] = _crop(data_dict['masks'], x=x, y=y, z=0, w=w, h=h, d=z_max)
+            x = ind[:, 1].min().int().item()
+            y = ind[:, 2].min().int().item()
+            # z = ind[:, 3].min().int().item()
+
+            w = x_max - x
+            h = y_max - y
+            # d = z_max-z
+
+            data_dict['image'] = _crop(data_dict['image'], x=x, y=y, z=0, w=w, h=h, d=z_max)
+            data_dict['masks'] = _crop(data_dict['masks'], x=x, y=y, z=0, w=w, h=h, d=z_max)
 
         return data_dict
 
@@ -45,7 +56,15 @@ class random_crop:
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
-        For example
+        Randomly crops an image to a designated size. If the crop size is too big, it just takes as much as it can.
+
+        for example:
+            in_image = torch.rand((300, 150, 27))
+            transform = random_crop(shape = (256, 256, 26))
+            out_image = transform(in_image)
+            out_image.shape
+            %% (256, 150, 26)
+
 
         :param data_dict:
         :return:
@@ -59,6 +78,14 @@ class random_crop:
         x = torch.randint(x_max, (1, 1)).item()
         y = torch.randint(y_max, (1, 1)).item()
         z = torch.randint(z_max, (1, 1)).item()
+
+        # Check if the crop doesnt contain any positive labels.
+        # If it does, try generating new points
+        # We want to make sure every training image has something to learn
+        while _crop(data_dict['masks'], x=x, y=y, z=z, w=self.w, h=self.h, d=self.d).sum() == 0:
+            x = torch.randint(x_max, (1, 1)).item()
+            y = torch.randint(y_max, (1, 1)).item()
+            z = torch.randint(z_max, (1, 1)).item()
 
         data_dict['image'] = _crop(data_dict['image'], x=x, y=y, z=z, w=self.w, h=self.h, d=self.d)
         data_dict['masks'] = _crop(data_dict['masks'], x=x, y=y, z=z, w=self.w, h=self.h, d=self.d)
@@ -181,22 +208,25 @@ class adjust_brightness:
         return data_dict
 
 
-# needs docstring
-class adjust_contrast:
-    def __init__(self, rate: float = 0.5, range_contrast: Tuple[float, float] = (.3, 1.7)) -> None:
+class adjust_gamma:
+    def __init__(self, rate: float = 0.5, gamma: Tuple[float, float] = (0.5, 1.5), gain: Tuple[float, float] = (.75, 1.25)) -> None:
         self.rate = rate
-        self.range = range_contrast
-        self.fun = torch.jit.script(torchvision.transforms.functional.adjust_brightness)
+        self.gain = gain
+        self.gamma = gamma
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Randomly adjusts gamma of image color channels independently
 
-        for i in range(data_dict['image'].shape[0]):
-            if torch.rand(1) < self.rate:
-                val = torch.FloatTensor(1).uniform_(self.range[0], self.range[1])  # .to(image.device)
-                data_dict['image'][i, :, :, :] = torchvision.transforms.functional.adjust_contrast(
-                    data_dict['image'][i, :, :, :],
-                    val.to(
-                        data_dict['image'].device))
+        :param data_dict:
+        :return:
+        """
+
+        if torch.rand(1) < self.rate:
+            gamma = torch.FloatTensor(data_dict['image'].shape[0]).uniform_(self.gamma[0], self.gamma[1])
+            gain = torch.FloatTensor(data_dict['image'].shape[0]).uniform_(self.gain[0], self.gain[1])
+
+            data_dict['image'] = _adjust_gamma(data_dict['image'], gamma, gain)
 
         return data_dict
 
@@ -382,11 +412,50 @@ def _crop(img: torch.Tensor, x: int, y: int, z: int, w: int, h: int, d: int) -> 
 def _adjust_brightness(img: torch.Tensor, val: torch.Tensor) -> torch.Tensor:
     img = img.add_(val.reshape(img.shape[0], 1, 1, 1).to(img.device))
     img[img < 0] = 0
-    img[img > 0] = 1
+    img[img > 1] = 1
+    return img
+
+@torch.jit.script
+def _adjust_gamma(img: torch.Tensor, gamma: torch.Tensor, gain: torch.Tensor) -> torch.Tensor:
+    """
+    Assume img in shape [C, X, Y, Z]
+    
+    :param img: 
+    :param gamma: 
+    :param gain: 
+    :return: 
+    """
+    for c in range(img.shape[0]):
+        img[c, ...] = torchvision.transforms.functional.adjust_gamma(img[c, ...], gamma=gamma[c], gain=gain[c])
     return img
 
 
-# @torch.jit.script
-# def _adjust_contrast(img: torch.Tensor, val: torch.Tensor) -> torch.Tensor:
-#
-#     return
+
+
+if __name__ == '__main__':
+    print('Loading Train...')
+    transforms = torchvision.transforms.Compose([
+        nul_crop(),
+        random_crop(shape=(256, 256, 23)),
+        elastic_deformation(grid_shape=(3, 3, 2), scale=1.5),
+        to_cuda(),
+        random_h_flip(),
+        random_v_flip(),
+        random_affine(shear=(-15, 15)),
+        adjust_brightness(range_brightness=(-0.1, 0.2)),
+        adjust_gamma(),
+        adjust_centroids(),
+    ])
+    data = src.dataloader.dataset('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/data/test',
+                                  transforms=transforms)
+    print('Done')
+
+    dd = data[0]
+
+    image = dd['image']
+
+    for z in range(image.shape[-1]):
+        plt.imshow(image.cpu().numpy().transpose((1,2,3,0))[:,:,z,:])
+        plt.show()
+
+

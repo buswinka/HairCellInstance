@@ -59,10 +59,6 @@ def vector_to_embedding(vector: torch.Tensor) -> torch.Tensor:
     y_factor = 1 / 512
     z_factor = 1 / 40
 
-    # xv, yv, zv = torch.meshgrid([torch.linspace(0, 1, vector.shape[2]),
-    #                              torch.linspace(0, 1, vector.shape[3]),
-    #                              torch.linspace(0, 1, vector.shape[4])])
-
     xv, yv, zv = torch.meshgrid([torch.linspace(0, x_factor * vector.shape[2], vector.shape[2]),
                                  torch.linspace(0, y_factor * vector.shape[3], vector.shape[3]),
                                  torch.linspace(0, z_factor * vector.shape[4], vector.shape[4])])
@@ -74,7 +70,7 @@ def vector_to_embedding(vector: torch.Tensor) -> torch.Tensor:
     return mesh + vector
 
 
-# @torch.jit.script
+@torch.jit.script
 def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
     """
     Vectorizing this is slower than the loop!!!
@@ -113,7 +109,6 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
             euclidean_norm = (embedding - centroids[:, i, :].reshape(centroids.shape[0], 3, 1, 1, 1)).pow(2).sum(
                 dim=1).unsqueeze(1)
 
-            print(embedding.max(), centroids.max(), euclidean_norm.sqrt().max())
             # Turn distance to probability and put it in preallocated matrix
             prob[:, i, :, :, :] = torch.exp(-1 * euclidean_norm / sigma).squeeze(1)
 
