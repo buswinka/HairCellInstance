@@ -2,16 +2,16 @@ import torch
 import torchvision.transforms.functional
 from PIL.Image import Image
 import numpy as np
-from typing import Dict, Tuple, Union, List
+from typing import Dict, Tuple, Union, Sequence
 import elasticdeform
-import src.dataloader
-import matplotlib.pyplot as plt
 
 
-# ----------------- Assumtions -------------------#
+# ----------------- Assumptions ------------------------------#
 # Every image is expected to be [C, X, Y, Z]
 # Every transform's input has to be Dict[str, torch.Tensor]
 # Every transform's output has to be Dict[str, torch.Tensor]
+# Preserve whatever device the tensor was on when it started
+# ------------------------------------------------------------#
 
 
 class nul_crop:
@@ -24,8 +24,15 @@ class nul_crop:
         Doesnt remove Z
 
 
-        :param data_dict:
-        :return:
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
         if torch.rand(1) < self.rate:
             ind = torch.nonzero(data_dict['masks'])  # -> [I, 4] where 4 is ndims
@@ -64,8 +71,15 @@ class random_crop:
             %% (256, 150, 26)
 
 
-        :param data_dict:
-        :return:
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
         shape = data_dict['image'].shape
 
@@ -102,12 +116,13 @@ class random_v_flip:
 
         :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
             key : val
-            'image' : torch.Tensor of size [C, X, Y] where C is the number of colors, X,Y are the mask height and width
-            'masks' : torch.Tensor of size [I, X, Y] where I is the number of identifiable objects in the mask
-            'boxes' : torch.Tensor of size [I, 4] where each box is [x1, y1, x2, y2]
-            'labels' : torch.Tensor of size [I] class label for each instance
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
 
-        :return: Dict[str, torch.Tensor]
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
 
         if torch.rand(1) < self.rate:
@@ -128,12 +143,13 @@ class random_h_flip:
 
         :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
             key : val
-            'mask' : torch.Tensor of size [C, X, Y] where C is the number of colors, X,Y are the mask height and width
-            'masks' : torch.Tensor of size [I, X, Y] where I is the number of identifiable objects in the mask
-            'boxes' : torch.Tensor of size [I, 4] where each box is [x1, y1, x2, y2]
-            'labels' : torch.Tensor of size [I] class label for each instance
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
 
-        :return: Dict[str, torch.Tensor]
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
 
         if torch.rand(1) < self.rate:
@@ -144,23 +160,25 @@ class random_h_flip:
 
 
 class normalize:
-    def __init__(self, mean: List[float] = [0.5], std: List[float] = [0.5]) -> None:
+    def __init__(self, mean: Sequence[float] = (0.5), std: Sequence[float] = (0.5)) -> None:
+
         self.mean = mean
         self.std = std
         self.fun = torch.jit.script(torchvision.transforms.functional.normalize)
 
     def __call__(self, data_dict):
         """
-        Randomly applies a gaussian blur
+
 
         :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
             key : val
-            'mask' : torch.Tensor of size [C, X, Y] where C is the number of colors, X,Y are the mask height and width
-            'masks' : torch.Tensor of size [I, X, Y] where I is the number of identifiable objects in the mask
-            'boxes' : torch.Tensor of size [I, 4] where each box is [x1, y1, x2, y2]
-            'labels' : torch.Tensor of size [I] class label for each instance
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
 
-        :return: Dict[str, torch.Tensor]
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
         data_dict['image'] = self.fun(data_dict['image'], self.mean, self.std)
         return data_dict
@@ -178,12 +196,13 @@ class gaussian_blur:
 
         :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
             key : val
-            'mask' : torch.Tensor of size [C, X, Y] where C is the number of colors, X,Y are the mask height and width
-            'masks' : torch.Tensor of size [I, X, Y] where I is the number of identifiable objects in the mask
-            'boxes' : torch.Tensor of size [I, 4] where each box is [x1, y1, x2, y2]
-            'labels' : torch.Tensor of size [I] class label for each instance
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
 
-        :return: Dict[str, torch.Tensor]
+        :return: data_dict Dict[str, torch.Tensor]: dictionary with identical keys as input, but with transformed values
         """
         if torch.rand(1) < self.rate:
             kern = self.kernel_targets[int(torch.randint(0, len(self.kernel_targets), (1, 1)).item())].item()
@@ -200,6 +219,7 @@ class adjust_brightness:
     def __call__(self, data_dict):
 
         if torch.rand(1) < self.rate:
+            # funky looking but FAST
             val = torch.FloatTensor(data_dict['image'].shape[0]).uniform_(self.range[0], self.range[1])
             data_dict['image'] = self.fun(data_dict['image'], val)
 
@@ -207,7 +227,8 @@ class adjust_brightness:
 
 
 class adjust_gamma:
-    def __init__(self, rate: float = 0.5, gamma: Tuple[float, float] = (0.5, 1.5), gain: Tuple[float, float] = (.75, 1.25)) -> None:
+    def __init__(self, rate: float = 0.5, gamma: Tuple[float, float] = (0.5, 1.5),
+                 gain: Tuple[float, float] = (.75, 1.25)) -> None:
         self.rate = rate
         self.gain = gain
         self.gamma = gamma
@@ -216,8 +237,15 @@ class adjust_gamma:
         """
         Randomly adjusts gamma of image color channels independently
 
-        :param data_dict:
-        :return:
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
 
         if torch.rand(1) < self.rate:
@@ -240,7 +268,7 @@ class elastic_deformation:
 
         device = data_dict['image'].device
         image = data_dict['image'].cpu().numpy()
-        mask  = data_dict['masks'].cpu().numpy()
+        mask = data_dict['masks'].cpu().numpy()
         dtype = image.dtype
 
         displacement = np.random.randn(3, self.x_grid, self.y_grid, self.z_grid) * self.scale
@@ -257,7 +285,6 @@ class elastic_deformation:
         return data_dict
 
 
-# needs docstring
 class random_affine:
     def __init__(self, rate: float = 0.5, angle: Tuple[int, int] = (-180, 180),
                  shear: Tuple[int, int] = (-5, 5), scale: Tuple[float, float] = (0.9, 1.1)) -> None:
@@ -267,6 +294,20 @@ class random_affine:
         self.scale = scale
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Performs an affine transformation on the image and mask
+        Shears, rotates and scales the image randomly based on parameters defined at initialization
+
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
+        """
         if torch.rand(1) < self.rate:
             angle = torch.FloatTensor(1).uniform_(self.angle[0], self.angle[1])
             shear = torch.FloatTensor(1).uniform_(self.shear[0], self.shear[1])
@@ -287,8 +328,15 @@ class to_cuda:
         """
         Move every element in a dict containing torch tensor to cuda.
 
-        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader
-        :return: Dict[str, torch.Tensor]
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
         for key in data_dict:
             data_dict[key] = data_dict[key].cuda()
@@ -303,8 +351,15 @@ class to_tensor:
         """
         Convert a PIL image or numpy.ndarray to a torch.Tensor
 
-        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader
-        :return: Dict[str, torch.Tensor]
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
         data_dict['image'] = torchvision.transforms.functional.to_tensor(data_dict['image'])
         return data_dict
@@ -315,6 +370,20 @@ class adjust_centroids:
         pass
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Some Geometric transforms may alter the locations of cells so drastically that the centroid may no longer
+        be accurate. This recalculates the centroids based on the current mask.
+
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
+        """
 
         shape = data_dict['masks'].shape
         device = data_dict['masks'].device
@@ -329,10 +398,6 @@ class adjust_centroids:
                 ind[i] = 0
             else:
                 centroid[i, :] = torch.mean(indexes, dim=0)
-
-        # centroid[:, 0] /= shape[1]
-        # centroid[:, 1] /= shape[2]
-        # centroid[:, 2] /= shape[3]
 
         data_dict['centroids'] = centroid[ind.bool()].to(device)
         data_dict['masks'] = data_dict['masks'][ind.bool(), :, :, :]
@@ -367,13 +432,35 @@ class debug:
 def _affine(img: torch.Tensor, angle: torch.Tensor, translate: torch.Tensor, scale: torch.Tensor,
             shear: torch.Tensor) -> torch.Tensor:
     """
+    Not to be publicly accessed! Only called through src.transforms.affine
 
-    :param img:
-    :param angle:
-    :param translate:
-    :param scale:
-    :param shear:
-    :return:
+    A jit scriptable wrapped version of torchvision.transforms.functional.affine
+    Cannot, by rule, pass a dict to a torchscript function, necessitating this function
+
+
+    WARNING: Performs an affine transformation on the LAST TWO DIMENSIONS
+    ------------------------------------------------------------------------------------------------------------
+        call _shape(img) prior to _affine such that this transformation is performed on the X and Y dimensions
+        call _reshape on the output of _affine to return to [C, X, Y, Z]
+
+        correct implementation looks like
+         ```python
+         from src.transforms import _shape, _reshape, _affine
+         angle = torch.tensor([0])
+         scale = torch.tensor([0])
+         shear = torch.tensor([0])
+         translate = torch.tensor([0])
+         transformed_image = _reshape(_affine(_shape(img), angle, translate, scale, shear))
+
+         ```
+
+
+    :param img: torch.Tensor from data_dict of shape [..., X, Y]
+    :param angle: torch.Tensor float in degrees
+    :param translate: torch.Tensor translation factor. If zero, any transformations are done around center of image
+    :param scale: torch.Tensor float Scale factor of affine transformation, if 1, no scaling is performed
+    :param shear: torch.Tensor float shear factor of affine transformation, if 0, no shearing is performed
+    :return: torch.Tensor
     """
     angle = float(angle.item())
     scale = float(scale.item())
@@ -384,18 +471,48 @@ def _affine(img: torch.Tensor, angle: torch.Tensor, translate: torch.Tensor, sca
 
 @torch.jit.script
 def _shape(img: torch.Tensor) -> torch.Tensor:
+    """
+    Shapes a 4D input tensor from shape [C, X, Y, Z] to [C, Z, X, Y]
+
+    * some torchvision functional transforms only work on last two dimensions *
+
+    :param img: torch.Tensor image of shape [C, X, Y, Z]
+    :return:
+    """
     # [C, X, Y, Z] -> [C, 1, X, Y, Z] ->  [C, Z, X, Y, 1] -> [C, Z, X, Y]
     return img.unsqueeze(1).transpose(1, -1).squeeze(-1)
 
 
 @torch.jit.script
 def _reshape(img: torch.Tensor) -> torch.Tensor:
+    """
+    Reshapes a 4D input tensor from shape [C, Z, X, Y] to [C, X, Y, Z]
+
+    Performs corrective version of _shape
+
+    * some torchvision functional transforms only work on last two dimensions *
+
+    :param img: torch.Tensor image of shape [C, Z, X, Y]
+    :return:
+    """
     # [C, Z, X, Y] -> [C, Z, X, Y, 1] ->  [C, 1, X, Y, Z] -> [C, Z, X, Y]
     return img.unsqueeze(-1).transpose(1, -1).squeeze(1)
 
 
 @torch.jit.script
 def _crop(img: torch.Tensor, x: int, y: int, z: int, w: int, h: int, d: int) -> torch.Tensor:
+    """
+    torch scriptable function which crops an image
+
+    :param img: torch.Tensor image of shape [C, X, Y, Z]
+    :param x: x coord of crop box
+    :param y: y coord of crop box
+    :param z: z coord of crop box
+    :param w: width of crop box
+    :param h: height of crop box
+    :param d: depth of crop box
+    :return:
+    """
     if img.ndim == 4:
         img = img[:, x:x + w, y:y + h, z:z + d]
     elif img.ndim == 5:
@@ -408,10 +525,18 @@ def _crop(img: torch.Tensor, x: int, y: int, z: int, w: int, h: int, d: int) -> 
 
 @torch.jit.script
 def _adjust_brightness(img: torch.Tensor, val: torch.Tensor) -> torch.Tensor:
+    """
+    Adjusts brigtness of img with val
+
+    :param img: [C, X, Y, Z]
+    :param val: Tensor[float] [C]
+    :return:
+    """
     img = img.add_(val.reshape(img.shape[0], 1, 1, 1).to(img.device))
     img[img < 0] = 0
     img[img > 1] = 1
     return img
+
 
 @torch.jit.script
 def _adjust_gamma(img: torch.Tensor, gamma: torch.Tensor, gain: torch.Tensor) -> torch.Tensor:
@@ -426,34 +551,3 @@ def _adjust_gamma(img: torch.Tensor, gamma: torch.Tensor, gain: torch.Tensor) ->
     for c in range(img.shape[0]):
         img[c, ...] = torchvision.transforms.functional.adjust_gamma(img[c, ...], gamma=gamma[c], gain=gain[c])
     return img
-
-
-
-
-if __name__ == '__main__':
-    print('Loading Train...')
-    transforms = torchvision.transforms.Compose([
-        nul_crop(),
-        random_crop(shape=(256, 256, 23)),
-        elastic_deformation(grid_shape=(3, 3, 2), scale=1.5),
-        to_cuda(),
-        random_h_flip(),
-        random_v_flip(),
-        random_affine(shear=(-15, 15)),
-        adjust_brightness(range_brightness=(-0.1, 0.2)),
-        adjust_gamma(),
-        adjust_centroids(),
-    ])
-    data = src.dataloader.dataset('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/data/test',
-                                  transforms=transforms)
-    print('Done')
-
-    dd = data[0]
-
-    image = dd['image']
-
-    for z in range(image.shape[-1]):
-        plt.imshow(image.cpu().numpy().transpose((1,2,3,0))[:,:,z,:])
-        plt.show()
-
-
