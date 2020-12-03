@@ -36,11 +36,9 @@ class nul_crop:
 
             x = ind[:, 1].min().int().item()
             y = ind[:, 2].min().int().item()
-            # z = ind[:, 3].min().int().item()
 
             w = x_max - x
             h = y_max - y
-            # d = z_max-z
 
             data_dict['image'] = _crop(data_dict['image'], x=x, y=y, z=0, w=w, h=h, d=z_max)
             data_dict['masks'] = _crop(data_dict['masks'], x=x, y=y, z=0, w=w, h=h, d=z_max)
@@ -324,7 +322,7 @@ class adjust_centroids:
         ind = torch.ones(shape[0], dtype=torch.long)
 
         for i in range(shape[0]):  # num of instances
-            indexes = torch.nonzero(data_dict['masks'][i, :, :, :] > 0).float()
+            indexes = torch.nonzero(data_dict['masks'][i, ...] > 0).float()
 
             if indexes.shape[0] == 0:
                 centroid[i, :] = torch.tensor([-1, -1, -1])

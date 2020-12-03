@@ -1,17 +1,15 @@
 import torch
 import torch.nn as nn
 from src.models.modules.HCBlock import HCBlock
-import src.functional
 from warnings import filterwarnings
 
 
 filterwarnings("ignore", category=UserWarning)
 
+
 class HCNet(nn.Module):
     def __init__(self, in_channels: int, out_channels: int, complexity: int = 30):
         super(HCNet, self).__init__()
-        # raise RuntimeError('Because of how embedding works, there could be a different pixel delta for different '+
-        #                    'sized images! 1 delta pixel at 256 is not the same as 512!!!')
 
         self.conv3x3_1 = nn.Conv3d(in_channels=in_channels, out_channels=10, padding=1, kernel_size=3)
         self.bn_1 = nn.BatchNorm3d(10)
@@ -51,4 +49,3 @@ class HCNet(nn.Module):
         y = self.out_conv(y)
 
         return y
-
