@@ -5,13 +5,32 @@ import numpy as np
 from typing import Dict, Tuple, Union, Sequence
 import elasticdeform
 
+import skimage.io as io
 
-# ----------------- Assumptions ------------------------------#
-# Every image is expected to be [C, X, Y, Z]
-# Every transform's input has to be Dict[str, torch.Tensor]
-# Every transform's output has to be Dict[str, torch.Tensor]
-# Preserve whatever device the tensor was on when it started
-# ------------------------------------------------------------#
+
+# -------------------------------- Assumptions ------------------------------#
+#                Every image is expected to be [C, X, Y, Z]                  #
+#        Every transform's input has to be Dict[str, torch.Tensor]           #
+#       Every transform's output has to be Dict[str, torch.Tensor]           #
+#       Preserve whatever device the tensor was on when it started           #
+# ---------------------------------------------------------------------------#
+
+class save_image:
+    def __init__(self, name: str):
+        self.name = name
+
+    def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        image = data_dict['image'][[2, 1, 0], ...].cpu().transpose(0, -1).numpy()[10, ...]
+        _, mask = torch.max(data_dict['masks'].cpu(), 0)
+
+        print(mask.max())
+
+        mask = mask.float().numpy().transpose((2, 0, 1))[10, ...]
+
+        io.imsave(self.name + '_image.png', image)
+        io.imsave(self.name + '_mask.png', mask)
+
+        return data_dict
 
 
 class nul_crop:
@@ -161,7 +180,6 @@ class random_h_flip:
 
 class normalize:
     def __init__(self, mean: Sequence[float] = (0.5), std: Sequence[float] = (0.5)) -> None:
-
         self.mean = mean
         self.std = std
         self.fun = torch.jit.script(torchvision.transforms.functional.normalize)
@@ -217,7 +235,6 @@ class adjust_brightness:
         self.fun = _adjust_brightness
 
     def __call__(self, data_dict):
-
         if torch.rand(1) < self.rate:
             # funky looking but FAST
             val = torch.FloatTensor(data_dict['image'].shape[0]).uniform_(self.range[0], self.range[1])
@@ -265,7 +282,6 @@ class elastic_deformation:
         self.scale = scale
 
     def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
-
         device = data_dict['image'].device
         image = data_dict['image'].cpu().numpy()
         mask = data_dict['masks'].cpu().numpy()
@@ -391,6 +407,7 @@ class adjust_centroids:
         ind = torch.ones(shape[0], dtype=torch.long)
 
         for i in range(shape[0]):  # num of instances
+            data_dict['masks'][i, ...] = self._remove_edge_cells(data_dict['masks'][i, ...])
             indexes = torch.nonzero(data_dict['masks'][i, ...] > 0).float()
 
             if indexes.shape[0] == 0:
@@ -403,6 +420,28 @@ class adjust_centroids:
         data_dict['masks'] = data_dict['masks'][ind.bool(), :, :, :]
 
         return data_dict
+
+    @staticmethod
+    @torch.jit.script
+    def _remove_edge_cells(image: torch.Tensor) -> torch.Tensor:
+        """
+        meant to take in an bool tensor - if any positive value is touching the edges, remove it!
+
+        :param image: [X, Y, Z]
+        :return:
+        """
+
+        ind = torch.nonzero(image)
+        for i in range(2):
+            remove_bool = torch.any(ind[:, i] == 0) or torch.any(ind[:, i] == image.shape[i]-1)
+            remove_bool = remove_bool if torch.sum(image) < 3000 else False
+
+            # Remove cell if it touches the edge and is small
+            if remove_bool:
+                image = torch.zeros(image.shape)
+                break
+
+        return image
 
 
 class debug:
@@ -551,3 +590,8 @@ def _adjust_gamma(img: torch.Tensor, gamma: torch.Tensor, gain: torch.Tensor) ->
     for c in range(img.shape[0]):
         img[c, ...] = torchvision.transforms.functional.adjust_gamma(img[c, ...], gamma=gamma[c], gain=gain[c])
     return img
+
+
+if __name__ == '__main__':
+    a = torch.rand((500, 500, 30))
+    print(adjust_centroids()._remove_edge_cells(a).max())

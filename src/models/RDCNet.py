@@ -40,9 +40,4 @@ class RDCNet(nn.Module):
         y = self.activation(self.batch_norm_transpose(self.transposed_conv(y)))
         y = self.out_conv(y)
 
-        if self.training:
-            return y
-        else:
-            y = src.functional.vector_to_embedding(y)
-            centroids = src.functional.estimate_centroids(y).unsqueeze(0)
-            return src.functional.embedding_to_probability(y, centroids, torch.tensor([0.01])), y, centroids
+        return y

@@ -18,17 +18,25 @@ class jaccard_loss:
 
         predicted = _crop(predicted, x=0, y=0, z=0,
                           w=ground_truth.shape[2], h=ground_truth.shape[3], d=ground_truth.shape[4])
+
+        ground_truth = _crop(ground_truth, x=0, y=0, z=0,
+                             w=predicted.shape[2], h=predicted.shape[3], d=predicted.shape[4])
+
         # intersection = (predicted * ground_truth).sum().mul(2)
         # union = (predicted + ground_truth).sum()
 
         # predicted[predicted>=0.5]=1
         # predicted[predicted<0.5]=0
 
-        intersection = (predicted*ground_truth).sum().mul(2)
-        union = (predicted + ground_truth).sum()
+        intersection = (predicted * ground_truth).sum().add(1e-10)
+        union = (predicted + ground_truth).sum().sub(intersection).add(2e-10)
+
+        assert not torch.isnan(intersection)
+        assert not torch.isnan(union)
+
+
 
         return 1.0 - (intersection/union)
-
 
 
 def dice(pred: torch.Tensor, mask: torch.Tensor):
@@ -56,3 +64,46 @@ def dice(pred: torch.Tensor, mask: torch.Tensor):
     loss = (2 * (pred * mask).sum() + 1e-10) / ((pred + mask).sum() + 1e-10)
 
     return 1-loss
+
+
+class tversky_loss(nn.Module):
+    def __init__(self):
+        super(tversky_loss, self).__init__()
+
+    def forward(self, predicted: torch.Tensor, ground_truth: torch.Tensor, smooth: float = 1e-10,
+                alpha: float = 0.5, beta: float = 0.5):
+        """
+
+
+        :param predicted:
+        :param ground_truth:
+        :param smooth:
+        :param alpha:
+        :param beta:
+        :return:
+        """
+
+        predicted = _crop(predicted, x=0, y=0, z=0,
+                          w=ground_truth.shape[2], h=ground_truth.shape[3], d=ground_truth.shape[4])
+
+        ground_truth = _crop(ground_truth, x=0, y=0, z=0,
+                             w=predicted.shape[2], h=predicted.shape[3], d=predicted.shape[4])
+
+        true_positive = (predicted * ground_truth).sum()
+        false_negative = ((1 - predicted) * ground_truth).sum()
+        false_positive = (torch.logical_not(ground_truth) * predicted).sum().add(1e-10)
+
+        tversky = (true_positive + smooth) / (true_positive + alpha * false_positive + beta * false_negative + smooth)
+
+        return 1 - tversky
+
+
+if __name__ == '__main__':
+
+    a = torch.rand((1,50,200,200,30))
+    b = torch.rand((1, 50, 200, 200, 30))
+    loss = jaccard_loss()
+    print(loss(a, b > 0.5))
+    print(loss(a, a > 0.5))
+    print(loss(a > 0.5, a > 0.5))
+
