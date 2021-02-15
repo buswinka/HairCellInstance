@@ -75,12 +75,12 @@ def remove_edge_cells(mask: torch.Tensor) -> torch.Tensor:
     return mask
 
 #
-# @torch.jit.script
-# def remove_small_cells(mask: torch.Tensor) -> torch.Tensor:
-#
-#     for u in torch.unique(mask).nonzero():
-#
-#         if (mask == u).sum() < 4000:
-#             mask[mask == u] = 0
-#
-#     return mask
+@torch.jit.script
+def remove_small_cells(mask: torch.Tensor) -> torch.Tensor:
+
+    for u in torch.unique(mask).nonzero():
+
+        if (mask == u).sum() < 4000:
+            mask[mask == u] = 0
+
+    return mask

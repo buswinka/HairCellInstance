@@ -5,7 +5,6 @@ from typing import Tuple, Union
 
 filterwarnings("ignore", category=UserWarning)
 
-
 class StackedDilation(nn.Module):
     def __init__(self,
                  in_channels: int,

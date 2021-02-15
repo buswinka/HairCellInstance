@@ -14,10 +14,10 @@ class RDCNet(nn.Module):
 
         self.conv3x3_1 = nn.Conv3d(in_channels=in_channels, out_channels=5, padding=1, kernel_size=3)
 
-        self.strided_conv = nn.Conv3d(5, complexity, kernel_size=3, stride=2, padding=1)
+        self.strided_conv = nn.Conv3d(5, complexity, kernel_size=3, stride=(3,3,2), padding=1)
         self.RDCblock = RDCBlock(in_channels=complexity)
         self.transposed_conv = nn.ConvTranspose3d(in_channels=complexity, out_channels=complexity,
-                                                  stride=(2, 2, 2), kernel_size=(4, 4, 4), padding=(1, 1, 1))
+                                                  stride=(3, 3, 2), kernel_size=(3, 3, 3), padding=(1, 1, 1))
         self.out_conv = nn.Conv3d(complexity, out_channels=out_channels, kernel_size=1, padding=0)
 
 

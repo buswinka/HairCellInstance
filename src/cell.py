@@ -2,7 +2,7 @@ import torch
 
 
 class cell:
-    def __init__(self, im: torch.Tensor, mask: torch.Tensor, place: float = 0):
+    def __init__(self, image: torch.Tensor, mask: torch.Tensor, place: float = 0):
         """
 
         :param im: [B, 4, X, Y, Z]
@@ -20,7 +20,7 @@ class cell:
         # 3:Actin
         # assume image is in [B, C, X, Y, Z]
 
-        self.dapi = im[0, 0, ...][mask[0, 0, ...].gt(0.5)].mean()
-        self.gfp = im[0, 1, ...][mask[0, 0, ...].gt(0.5)].mean()
-        self.myo7a = im[0, 2, ...][mask[0, 0, ...].gt(0.5)].mean()
-        self.actin = im[0, 3, ...][mask[0, 0, ...].gt(0.5)].mean()
+        self.dapi = image[0, 0, ...][mask[0, 0, ...].gt(0.5)].mean()
+        self.gfp = image[0, 1, ...][mask[0, 0, ...].gt(0.5)].mean()
+        self.myo7a = image[0, 2, ...][mask[0, 0, ...].gt(0.5)].mean()
+        self.actin = image[0, 3, ...][mask[0, 0, ...].gt(0.5)].mean()

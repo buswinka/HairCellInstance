@@ -184,7 +184,7 @@ class normalize:
         self.std = std
         self.fun = torch.jit.script(torchvision.transforms.functional.normalize)
 
-    def __call__(self, data_dict):
+    def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
         """
 
 
@@ -199,6 +199,33 @@ class normalize:
         :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
         """
         data_dict['image'] = self.fun(data_dict['image'], self.mean, self.std)
+        return data_dict
+
+
+class random_noise:
+    def __init__(self, gamma: float = 0.1, rate: float = 0.5):
+        self.gamma = gamma
+        self.rate = rate
+
+    def __call__(self, data_dict: Dict[str, torch.Tensor], ) -> Dict[str, torch.Tensor]:
+        """
+        Adds noise to the image. Noise are values between 0 and 0.3
+
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
+        """
+        if torch.rand(1).item() < self.rate:
+            device = data_dict['masks'].device
+            noise = torch.rand(data_dict['image'].shape).to(device) * torch.tensor([self.gamma]).to(device)
+            data_dict['image'] = data_dict['image'] + noise
+
         return data_dict
 
 
@@ -410,11 +437,21 @@ class adjust_centroids:
             data_dict['masks'][i, ...] = self._remove_edge_cells(data_dict['masks'][i, ...])
             indexes = torch.nonzero(data_dict['masks'][i, ...] > 0).float()
 
+            #
             if indexes.shape[0] == 0:
                 centroid[i, :] = torch.tensor([-1, -1, -1])
                 ind[i] = 0
+            # else:
+            #     centroid[i, :] = torch.mean(indexes, dim=0)
             else:
-                centroid[i, :] = torch.mean(indexes, dim=0)
+                z_max = indexes[..., -1].max()
+                z_min = indexes[..., -1].min()
+                z = torch.round((z_max - z_min)/2 + z_min) - 2
+
+                indexes = indexes[indexes[..., -1] == z, :]
+
+                centroid[i, :] = torch.cat((torch.mean(indexes, dim=0)[0:2], torch.tensor([z]))).float()
+
 
         data_dict['centroids'] = centroid[ind.bool()].to(device)
         data_dict['masks'] = data_dict['masks'][ind.bool(), :, :, :]
@@ -443,6 +480,50 @@ class adjust_centroids:
 
         return image
 
+
+class colormask_to_mask:
+    def __init__(self):
+        pass
+
+    def __call__(self, data_dict: Dict[str, torch.Tensor]) -> Dict[str, torch.Tensor]:
+        """
+        Some Geometric transforms may alter the locations of cells so drastically that the centroid may no longer
+        be accurate. This recalculates the centroids based on the current mask.
+
+        :param data_dict Dict[str, torch.Tensor]: data_dictionary from a dataloader. Has keys:
+            key : val
+            'image' : torch.Tensor of size [C, X, Y, Z] where C is the number of colors, X,Y,Z are the mask height,
+                      width, and depth
+            'masks' : torch.Tensor of size [I, X, Y, Z] where I is the number of identifiable objects in the mask
+            'centroids' : torch.Tensor of size [I, 3] where dimension two is the [X, Y, Z] position of the centroid
+                          for instance i
+
+        :return: data_dict Dict[str, torch.Tensor]: dictonary with identical keys as input, but with transformed values
+        """
+
+        data_dict['masks'] = self._colormask_to_torch_mask(data_dict['masks'])
+
+        return data_dict
+
+    @staticmethod
+    @torch.jit.script
+    def _colormask_to_torch_mask(colormask: torch.Tensor) -> torch.Tensor:
+        """
+
+        :param colormask: [C=1, X, Y, Z]
+        :return:
+        """
+        uni = torch.unique(colormask)
+        uni = uni[uni != 0]
+        num_cells = len(uni)
+
+        shape = (num_cells, colormask.shape[1], colormask.shape[2], colormask.shape[3])
+        mask = torch.zeros(shape)
+
+        for i, u in enumerate(uni):
+            mask[i, :, :, :] = (colormask[0, :, :, :] == u)
+
+        return mask
 
 class debug:
     def __init__(self, ind: int = 0):

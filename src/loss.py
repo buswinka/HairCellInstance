@@ -98,11 +98,34 @@ class tversky_loss(nn.Module):
         return 1 - tversky
 
 
+class l1_loss(nn.Module):
+    def __call__(self, predicted: torch.Tensor, ground_truth: torch.Tensor) -> torch.Tensor:
+        """
+        Returns intersection over union
+
+        :param predicted: [B, I, X, Y, Z] torch.Tensor of probabilities calculated from src.utils.embedding_to_probability
+                          where B: is batch size, I: instances in image
+        :param ground_truth: [B, I, X, Y, Z] segmentation mask for each instance (I).
+        :return:
+        """
+
+        predicted = _crop(predicted, x=0, y=0, z=0,
+                          w=ground_truth.shape[2], h=ground_truth.shape[3], d=ground_truth.shape[4])
+
+        ground_truth = _crop(ground_truth, x=0, y=0, z=0,
+                             w=predicted.shape[2], h=predicted.shape[3], d=predicted.shape[4])
+
+
+
+        loss = torch.nn.L1Loss()
+
+        return loss(predicted, ground_truth)
+
 if __name__ == '__main__':
 
     a = torch.rand((1,50,200,200,30))
     b = torch.rand((1, 50, 200, 200, 30))
-    loss = jaccard_loss()
+    loss = tversky_loss()
     print(loss(a, b > 0.5))
     print(loss(a, a > 0.5))
     print(loss(a > 0.5, a > 0.5))
