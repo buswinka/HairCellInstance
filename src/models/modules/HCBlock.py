@@ -7,11 +7,11 @@ filterwarnings("ignore", category=UserWarning)
 
 
 class HCBlock(nn.Module):
-    def __init__(self, in_channels: int) -> None:
+    def __init__(self, in_channels: int, kernel_size: int = 5, padding: int = 2) -> None:
         super(HCBlock, self).__init__()
 
         self.conv1x1 = nn.Conv3d(in_channels * 2, in_channels, kernel_size=1)
-        self.conv3x3 = nn.Conv3d(in_channels, in_channels, kernel_size=5, padding=2, stride=1, dilation=1)
+        self.conv3x3 = nn.Conv3d(in_channels, in_channels, kernel_size=kernel_size, padding=padding, stride=1, dilation=1)
         self.activation = nn.LeakyReLU()
 
         self.batch_norm_conv = nn.BatchNorm3d(in_channels)

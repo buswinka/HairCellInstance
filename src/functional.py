@@ -1,6 +1,9 @@
 from sklearn.cluster import DBSCAN, OPTICS
 from hdbscan import HDBSCAN
 import torch
+
+from typing import Tuple
+
 import numpy as np
 import matplotlib.pyplot as plt
 import skimage
@@ -11,6 +14,8 @@ import skimage.feature
 import skimage.segmentation
 import skimage.transform
 import skimage.feature
+
+from src.transforms import _crop
 
 import scipy.ndimage
 import scipy.ndimage.morphology
@@ -28,9 +33,9 @@ def vector_to_embedding(vector: torch.Tensor) -> torch.Tensor:
     :param vector:
     :return:
     """
-    x_factor = 1 / 256
-    y_factor = 1 / 256
-    z_factor = 1 / 256
+    x_factor = 1 / 512
+    y_factor = 1 / 512
+    z_factor = 1 / 512
 
     xv, yv, zv = torch.meshgrid([torch.linspace(0, x_factor * vector.shape[2], vector.shape[2], device=vector.device),
                                  torch.linspace(0, y_factor * vector.shape[3], vector.shape[3], device=vector.device),
@@ -58,10 +63,12 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
     :param sigma: torch.Tensor of shape = (1) or (embedding.shape)
     :return: [B, I, X, Y, Z] of probabilities for instance I
     """
+    num = torch.tensor([512], device=centroids.device)
 
-    sigma = sigma + 1e-10  # when sigma goes to zero, things tend to break
+    sigma = sigma + torch.tensor([1e-10], device=centroids.device)  # when sigma goes to zero, things tend to break
 
-    centroids /= 256
+    if centroids.max().gt(5):
+        centroids = centroids / num  # Half the size of the image so vectors can be +- 1
 
     # Calculates the euclidean distance between the centroid and the embedding
     # embedding [B, 3, X, Y, Z] -> euclidean_norm[B, 1, X, Y, Z]
@@ -73,7 +80,7 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
                         embedding.shape[3],
                         embedding.shape[4]), device=embedding.device)
 
-    sigma.pow_(2).mul_(2)
+    sigma = sigma.pow(2).mul(2)
 
     for i in range(centroids.shape[1]):
 
@@ -82,11 +89,38 @@ def embedding_to_probability(embedding: torch.Tensor, centroids: torch.Tensor, s
 
         # Turn distance to probability and put it in preallocated matrix
         if sigma.shape[0] == 3:
-            prob[:, i, :, :, :] = torch.exp((euclidean_norm / sigma.view(centroids.shape[0], 3, 1, 1, 1)).mul(-1).sum(dim=1)).squeeze(1)
+            prob[:, i, :, :, :] = torch.exp(
+                (euclidean_norm / sigma.view(centroids.shape[0], 3, 1, 1, 1)).mul(-1).sum(dim=1)).squeeze(1)
         else:
             prob[:, i, :, :, :] = torch.exp((euclidean_norm / sigma).mul(-1).sum(dim=1)).squeeze(1)
 
     return prob
+
+
+@torch.jit.script
+def learnable_centroid(embedding: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    """
+    Estimates a center of attraction best predicted by the network. Take mean direction of vectors predicted for a
+    single object and takes that as the centroid of the object. In this way the model can learn where best to
+    predict a center.
+
+    :param embedding:
+    :param mask:
+    :return: centroids {C, N, 3}
+    """
+    shape = embedding.shape
+    mask = _crop(mask, 0, 0, 0, shape[2], shape[3], shape[4])  # from src.transforms._crop
+    centroid = torch.zeros((mask.shape[0], mask.shape[1], 3), device=mask.device)
+
+    # Loop over each instance and take the mean of the vectors multiplied by the mask (0 or 1)
+    for i in range(mask.shape[1]):
+        ind = torch.nonzero(embedding * mask[:, i, ...].unsqueeze(1))  # [:, [B, N, X, Y, Z]]
+        center = embedding[ind[:, 0], :, ind[:, 2], ind[:, 3], ind[:, 4]].mean(0)
+
+        # Assign the center of attraction if its there, else make it -10
+        centroid[:, i, :] = center if ind.shape[0] > 1 else torch.tensor([-10, -10, -10], device=mask.device)
+
+    return centroid
 
 
 def estimate_centroids(embedding: torch.Tensor, eps: float = 0.2, min_samples: int = 100,
@@ -111,11 +145,12 @@ def estimate_centroids(embedding: torch.Tensor, eps: float = 0.2, min_samples: i
     y = embedding[1, :]
     z = embedding[2, :]
 
-    ind_x = torch.logical_and(x > 0, x < embed_shape[2]/512)
-    ind_y = torch.logical_and(y > 0, y < embed_shape[3]/512)
-    ind_z = torch.logical_and(z > 0, z < embed_shape[4]/512)
-    ind = torch.logical_and(ind_x, ind_y)
-    ind = torch.logical_and(ind, ind_z)
+
+    ind_x = torch.logical_and(x > -9, x < 10)
+    ind_y = torch.logical_and(y > -9, y < 10)
+    ind_z = torch.logical_and(z > -9, z < 10)
+    ind = torch.logical_or(ind_x, ind_y)
+    ind = torch.logical_or(ind, ind_z)
 
     x = x[ind]
     y = y[ind]
@@ -133,10 +168,9 @@ def estimate_centroids(embedding: torch.Tensor, eps: float = 0.2, min_samples: i
     # y = y[ind].mul(512).round().numpy()
     # z = z[ind].mul(512).round().numpy()
 
-    x = x.mul(512).round().numpy()
-    y = y.mul(512).round().numpy()
-    z = z.mul(512).round().numpy()
-
+    x = x.numpy()
+    y = y.numpy()
+    z = z.numpy()
 
     X = np.stack((x, y, z)).T
     db = DBSCAN(eps=eps, min_samples=min_samples, n_jobs=-1, p=p, leaf_size=leaf_size).fit(X)
@@ -144,6 +178,7 @@ def estimate_centroids(embedding: torch.Tensor, eps: float = 0.2, min_samples: i
     labels = db.labels_
 
     unique, counts = np.unique(labels, return_counts=True)
+    print(len(unique))
 
     centroids = []
     scores = []
@@ -167,12 +202,75 @@ def estimate_centroids(embedding: torch.Tensor, eps: float = 0.2, min_samples: i
 
     # Works best with non maximum supression
     centroids_xy = centroids[:, :, [0, 1]]
-    wh = torch.ones(centroids_xy.shape) * 12 # <- I dont know why this works but it does so deal with it????
+    wh = torch.ones(centroids_xy.shape) * 0.04  # <- I dont know why this works but it does so deal with it????
     boxes = torch.cat((centroids_xy, wh.to(centroids_xy.device)), dim=-1)
     boxes = torchvision.ops.box_convert(boxes, 'cxcywh', 'xyxy')
     keep = torchvision.ops.nms(boxes.squeeze(0), torch.tensor(scores).float().to(centroids_xy.device), 0.075)
 
     return centroids[:, keep, :]
+
+
+@torch.jit.script
+def _mode(x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Assume [B, C, X, Y, Z]
+    :param x:
+    :return:
+    """
+    val, counts = torch.unique(x.reshape(x.shape[0], x.shape[1], -1), dim=-1, return_counts=True)
+    ind = val[0, 0, :] < -10
+    val = val[:, :, ind]
+    counts = counts[ind]
+    max = torch.max(counts)
+    ind = torch.argmax(counts)
+    return val[0, :, ind], max.unsqueeze(0)
+
+
+@torch.jit.script
+def _center_vote(embedding: torch.Tensor, sigma: torch.Tensor) -> torch.Tensor:
+    """
+    Implements voting system for voting
+
+    :param embedding:
+    :param sigma:
+    :return:
+    """
+
+    if torch.any(sigma.gt(0)):
+        sigma = sigma * 256
+
+    shape = embedding.shape
+    x_ind = torch.linspace(0, int(shape[2]), int(shape[2] // sigma.item())).round().int()
+    y_ind = torch.linspace(0, int(shape[3]), int(shape[3] // sigma.item())).round().int()
+    z_ind = torch.linspace(0, int(shape[4]), int(shape[4] // sigma.item())).round().int()
+
+    if z_ind.numel() == 0 or z_ind[0] == 0:  # only works because numel is evaluated first!!!
+        z_ind = torch.tensor([0, int(shape[4])])
+
+    centroids = torch.zeros((1, 3), device=embedding.device)
+    scores = torch.tensor([0], device=embedding.device)
+
+    for x in range(x_ind.shape[0] - 1):
+        for y in range(y_ind.shape[0] - 1):
+            for z in range(z_ind.shape[0] - 1):
+                chunk = embedding[:, :, x_ind[x]:x_ind[x + 1], y_ind[y]:y_ind[y + 1], z_ind[z]:z_ind[z + 1]]
+                center, score = _mode(chunk.mul(256).round())
+                if torch.any(center < -10) or score < 0:
+                    continue
+                centroids = torch.cat((centroids, center.unsqueeze(0)), dim=0)
+                scores = torch.cat((scores, score), dim=0)
+
+
+    centroids = centroids[1::, :]
+    scores = scores[1::]
+
+    centroids_xy = centroids[:, 0:2:1]
+    wh = torch.ones(centroids_xy.shape) * 12  # <- I dont know why this works but it does so deal with it????
+    boxes = torch.cat((centroids_xy, wh.to(centroids_xy.device)), dim=-1)
+    boxes = torchvision.ops.box_convert(boxes, 'cxcywh', 'xyxy')
+    keep = torchvision.ops.nms(boxes.squeeze(0), scores[:,].float(), 0.075)
+
+    return centroids[keep, :].unsqueeze(0).div(256)
 
 
 def get_cochlear_length(image: torch.Tensor,
@@ -204,15 +302,15 @@ def get_cochlear_length(image: torch.Tensor,
     for i in range(2):
         image = skimage.morphology.binary_erosion(image)
 
-    plt.figure(figsize=(3,3))
+    plt.figure(figsize=(3, 3))
     plt.title('Downsample, binary preprocessing')
     plt.imshow(image)
-    plt.savefig('curve_downsample.svg' )
+    plt.savefig('curve_downsample.svg')
     plt.show()
 
     image = skimage.morphology.skeletonize(image, method='lee')
 
-    plt.figure(figsize=(3,3))
+    plt.figure(figsize=(3, 3))
     plt.title('skeletonize')
     plt.imshow(image)
     plt.savefig('skeletonized.svg')
@@ -241,8 +339,7 @@ def get_cochlear_length(image: torch.Tensor,
     x += -int(center_of_mass[0])
     y += -int(center_of_mass[1])
 
-
-    plt.figure(figsize=(5,5))
+    plt.figure(figsize=(5, 5))
     plt.plot(y, x, 'k.')
     plt.xlabel('x')
     plt.ylabel('y')
@@ -253,13 +350,12 @@ def get_cochlear_length(image: torch.Tensor,
     r = np.sqrt(x ** 2 + y ** 2)
     theta = np.arctan2(x, y)
 
-
     # sort by theta
     ind = theta.argsort()
     theta = theta[ind]
     r = r[ind]
 
-    plt.figure(figsize=(3,3))
+    plt.figure(figsize=(3, 3))
     plt.plot(theta, r, 'k.')
     plt.ylabel('Radius')
     plt.xlabel('$\theta$ (Radians)')
@@ -275,7 +371,7 @@ def get_cochlear_length(image: torch.Tensor,
     theta = theta[ind]
     r = r[ind]
 
-    plt.figure(figsize=(3,3))
+    plt.figure(figsize=(3, 3))
     plt.plot(theta, r, 'k.')
     plt.ylabel('Radius')
     plt.xlabel('$\Theta$ (Radians)')
@@ -289,7 +385,7 @@ def get_cochlear_length(image: torch.Tensor,
     # get new values of theta and r for the fitted line
     theta_, r_ = splev(u_new, tck)
 
-    plt.figure(figsize=(3,3))
+    plt.figure(figsize=(3, 3))
     plt.plot(theta, r, 'k.')
     plt.xlabel('$\Theta$ (Radians)')
     plt.ylabel('Radius')
@@ -337,15 +433,18 @@ def get_cochlear_length(image: torch.Tensor,
 
 
 if __name__ == '__main__':
-    dd = torch.load('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/embed_data.trch')
-    embed = dd['embed']
-    centroids = dd['centroids']
-    cent = estimate_centroids(embed, 0.003, 20)  # 0.0081, 160
+    embed = torch.load('/media/DataStorage/Dropbox (Partners HealthCare)/HairCellInstance/embed.trch')
+    # embed = dd['embed']
+    # centroids = dd['centroids']
+    embed = embed.cuda()
+    print(embed.max())
+
+    cent = estimate_centroids(embed, 0.002, 40)
+    # cent = _center_vote(embed, torch.tensor([0.01]))  # 0.0081, 160
     x = embed.detach().cpu().numpy()[0, 0, ...].flatten()
     y = embed.detach().cpu().numpy()[0, 1, ...].flatten()
     plt.figure(figsize=(10, 10))
     plt.hist2d(x, y, bins=256, range=((0, 1), (0, 1)))
-    plt.plot(cent[0, :, 0].div(512).detach().cpu().numpy(), cent[0, :, 1].div(512).detach().cpu().numpy(), 'ro')
-    plt.plot(centroids[0, :, 0].cpu() / 256, centroids[0, :, 1].cpu() / 256, 'bo')
+    plt.plot(cent[0, :, 0].detach().cpu().numpy(), cent[0, :, 1].detach().cpu().numpy(), 'ro')
+    # plt.plot(centroids[0, :, 0].cpu() / 256, centroids[0, :, 1].cpu() / 256, 'bo')
     plt.show()
-

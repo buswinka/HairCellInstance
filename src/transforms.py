@@ -430,8 +430,8 @@ class adjust_centroids:
 
         shape = data_dict['masks'].shape
         device = data_dict['masks'].device
-        centroid = torch.zeros(shape[0], 3, dtype=torch.float)
-        ind = torch.ones(shape[0], dtype=torch.long)
+        centroid = torch.zeros(shape[0], 3, dtype=torch.float, device=device)
+        ind = torch.ones(shape[0], dtype=torch.long, device=device)
 
         for i in range(shape[0]):  # num of instances
             data_dict['masks'][i, ...] = self._remove_edge_cells(data_dict['masks'][i, ...])
@@ -439,21 +439,18 @@ class adjust_centroids:
 
             #
             if indexes.shape[0] == 0:
-                centroid[i, :] = torch.tensor([-1, -1, -1])
+                centroid[i, :] = torch.tensor([-1, -1, -1], device=device)
                 ind[i] = 0
-            # else:
-            #     centroid[i, :] = torch.mean(indexes, dim=0)
+
             else:
                 z_max = indexes[..., -1].max()
                 z_min = indexes[..., -1].min()
                 z = torch.round((z_max - z_min)/2 + z_min) - 2
-
                 indexes = indexes[indexes[..., -1] == z, :]
 
-                centroid[i, :] = torch.cat((torch.mean(indexes, dim=0)[0:2], torch.tensor([z]))).float()
+                centroid[i, :] = torch.cat((torch.mean(indexes, dim=0)[0:2], z.unsqueeze(0))).float()
 
-
-        data_dict['centroids'] = centroid[ind.bool()].to(device)
+        data_dict['centroids'] = centroid[ind.bool()]
         data_dict['masks'] = data_dict['masks'][ind.bool(), :, :, :]
 
         return data_dict
@@ -518,7 +515,7 @@ class colormask_to_mask:
         num_cells = len(uni)
 
         shape = (num_cells, colormask.shape[1], colormask.shape[2], colormask.shape[3])
-        mask = torch.zeros(shape)
+        mask = torch.zeros(shape, device=colormask.device)
 
         for i, u in enumerate(uni):
             mask[i, :, :, :] = (colormask[0, :, :, :] == u)
